@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: immune-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: immune_risk
+      MYSQL_USER: immune_user
+      MYSQL_PASSWORD: ${MYSQL_USER_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./medical.sql:/docker-entrypoint-initdb.d/medical.sql
+    ports:
+      - "3306:3306"  # 可选：暴露给外部，方便本地连接
+    networks:
+      - immune-network
+    restart: always
+    # MySQL健康检查（确保数据库就绪）
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend  # 后端项目根目录（含Dockerfile）
+    container_name: immune-backend
+    depends_on:
+      - mysql
+    env_file:
+      - ./.env # 直接读取根目录的 .env，无需复制到容器内
+    ports:
+      - "8085:8085"  # 可选：暴露给外部，方便调试
+    networks:
+      - immune-network
+    restart: always
+    # 后端健康检查（端口改为8085）
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8085/immuse-risk/ || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s  # 给后端30s启动时间
+
+  frontend:
+    build:
+      context: ./frontend  # 前端项目根目录（含Dockerfile+nginx.conf）
+      args:
+        - VUE_APP_BASE_API=${VUE_APP_BASE_API}
+    container_name: immune-frontend
+    ports:
+      - "80:80"  # 前端对外暴露80端口，浏览器直接访问服务器IP即可
+    depends_on:
+      - backend
+    networks:
+      - immune-network
+    restart: always
+
+volumes:
+  mysql_data:  # 持久化MySQL数据
+
+networks:
+  immune-network:
+    driver: bridge
